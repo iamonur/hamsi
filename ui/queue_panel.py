@@ -51,6 +51,7 @@ class QueuePanel(QWidget):
         header.setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.itemDoubleClicked.connect(self._edit_task)
 
         self.add_button = QPushButton("Add")
         self.edit_button = QPushButton("Edit")

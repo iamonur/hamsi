@@ -110,11 +110,23 @@ class StateStore:
             idx = next((i for i, t in enumerate(self._tasks) if t.id == task_id), None)
             if idx is None:
                 return
-            new_idx = max(0, min(len(self._tasks) - 1, idx + offset))
-            if new_idx == idx:
+            self._reorder_locked(idx, idx + offset)
+
+    def reorder_task(self, task_id: str, new_index: int) -> None:
+        """Move a task to an arbitrary position in priority order (e.g. drag-and-drop)."""
+        with self._lock:
+            idx = next((i for i, t in enumerate(self._tasks) if t.id == task_id), None)
+            if idx is None:
                 return
-            self._tasks.insert(new_idx, self._tasks.pop(idx))
-            self.save()
+            self._reorder_locked(idx, new_index)
+
+    def _reorder_locked(self, idx: int, new_idx: int) -> None:
+        """Move the task at idx to new_idx. Caller must hold self._lock."""
+        new_idx = max(0, min(len(self._tasks) - 1, new_idx))
+        if new_idx == idx:
+            return
+        self._tasks.insert(new_idx, self._tasks.pop(idx))
+        self.save()
 
     # -- settings ------------------------------------------------------
 

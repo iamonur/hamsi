@@ -109,6 +109,27 @@ def test_pick_next_task_skips_will_retry_before_cooldown_elapsed(tmp_path):
     assert manager._pick_next_task() is None
 
 
+def test_process_task_accumulates_time_spent_and_stops_clock(tmp_path):
+    manager, store = make_manager(tmp_path)
+    task = Task.new(summary="Add feature", description="Do the thing", repo_url="https://example.com/r.git")
+    store.add_task(task)
+
+    with patch.object(mt, "run_claude") as run_claude, \
+         patch.object(mt.git_ops, "branch_name", return_value="feature/test"), \
+         patch.object(mt.git_ops, "ensure_workspace", return_value=tmp_path), \
+         patch.object(mt.git_ops, "workspace_path_for", return_value=tmp_path):
+        run_claude.side_effect = [
+            ClaudeRunResult(exit_code=0, output="worker done"),
+            ClaudeRunResult(exit_code=0, output="looks good\nVERDICT: PASS"),
+        ]
+        manager._process_task(task)
+
+    final = store.get_task(task.id)
+    assert final.active_since is None
+    assert final.time_spent_seconds >= 0.0
+    assert final.total_time_spent_seconds() == final.time_spent_seconds
+
+
 def test_pick_next_task_returns_backlog_task(tmp_path):
     manager, store = make_manager(tmp_path)
     task = Task.new(summary="s", description="d", repo_url="r")

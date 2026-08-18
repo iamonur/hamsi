@@ -3,7 +3,7 @@ import, Jira import. See REQUIREMENTS.md 5.1."""
 
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -24,8 +24,23 @@ from ui.jira_import_dialog import JiraImportDialog
 from ui.task_dialog import TaskDialog
 from ui.theme import STATE_COLORS
 
-COLUMNS = ["ID", "Summary", "State", "Attempts", "Repo", "Updated"]
+COLUMNS = ["ID", "Summary", "State", "Attempts", "Time Spent", "Repo", "Updated"]
 STATE_COL = 2
+TIME_COL = 4
+
+TICK_INTERVAL_MS = 1000
+
+
+def format_duration(seconds: float) -> str:
+    """Render a duration as e.g. '45s', '12m 03s', '2h 05m'."""
+    total_seconds = int(max(0.0, seconds))
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    minutes, secs = divmod(total_seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m"
 
 
 class QueuePanel(QWidget):
@@ -48,7 +63,7 @@ class QueuePanel(QWidget):
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -88,12 +103,20 @@ class QueuePanel(QWidget):
         layout.addWidget(self.table)
         self.setLayout(layout)
 
+        self._tasks_cache: list = []
+
+        self._tick_timer = QTimer(self)
+        self._tick_timer.setInterval(TICK_INTERVAL_MS)
+        self._tick_timer.timeout.connect(self._tick)
+        self._tick_timer.start()
+
         self.refresh()
 
     # -- data -----------------------------------------------------------
 
     def refresh(self) -> None:
         tasks = self._store.list_tasks()
+        self._tasks_cache = tasks
         self.table.setRowCount(len(tasks))
         for row, task in enumerate(tasks):
             self.table.setItem(row, 0, QTableWidgetItem(task.id))
@@ -112,9 +135,24 @@ class QueuePanel(QWidget):
             self.table.setItem(row, STATE_COL, state_item)
 
             self.table.setItem(row, 3, QTableWidgetItem(str(task.attempt_count)))
-            self.table.setItem(row, 4, QTableWidgetItem(task.repo_url))
-            self.table.setItem(row, 5, QTableWidgetItem(task.updated_at.replace("T", " ")[:19]))
+
+            time_item = QTableWidgetItem(format_duration(task.total_time_spent_seconds()))
+            time_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, TIME_COL, time_item)
+
+            self.table.setItem(row, 5, QTableWidgetItem(task.repo_url))
+            self.table.setItem(row, 6, QTableWidgetItem(task.updated_at.replace("T", " ")[:19]))
         self.refreshed.emit(tasks)
+
+    def _tick(self) -> None:
+        """Advance the Time Spent column for tasks currently being worked on,
+        without rebuilding the whole table (keeps selection/scroll stable)."""
+        for row, task in enumerate(self._tasks_cache):
+            if not task.active_since:
+                continue
+            item = self.table.item(row, TIME_COL)
+            if item is not None:
+                item.setText(format_duration(task.total_time_spent_seconds()))
 
     def _selected_task_id(self):
         rows = self.table.selectionModel().selectedRows()

@@ -28,6 +28,32 @@ COLUMNS = ["ID", "Summary", "State", "Attempts", "Repo", "Updated"]
 STATE_COL = 2
 
 
+class _QueueTable(QTableWidget):
+    """QTableWidget that reports whole-row drag-and-drop reordering.
+
+    QTableWidget's built-in InternalMove drop handling operates on individual
+    cells, not whole rows, so we take over dropEvent entirely: figure out
+    which row was dragged onto which row, and let the panel re-fetch/redraw
+    from the store rather than trying to shuffle QTableWidgetItems by hand.
+    """
+
+    row_reordered = pyqtSignal(int, int)  # source_row, target_row
+
+    def dropEvent(self, event) -> None:
+        if event.source() is not self:
+            super().dropEvent(event)
+            return
+        event.ignore()
+        source_row = self.currentRow()
+        if source_row < 0:
+            return
+        target_index = self.indexAt(event.pos())
+        target_row = target_index.row() if target_index.isValid() else self.rowCount() - 1
+        if target_row < 0 or target_row == source_row:
+            return
+        self.row_reordered.emit(source_row, target_row)
+
+
 class QueuePanel(QWidget):
     tasks_changed = pyqtSignal()
     refreshed = pyqtSignal(list)  # emitted with the current task list on every refresh
@@ -36,7 +62,7 @@ class QueuePanel(QWidget):
         super().__init__(parent)
         self._store = store
 
-        self.table = QTableWidget(0, len(COLUMNS))
+        self.table = _QueueTable(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -51,6 +77,15 @@ class QueuePanel(QWidget):
         header.setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Drag a row onto another row to re-prioritize it, same underlying
+        # operation as the Move Up/Down buttons and context menu actions.
+        self.table.setDragEnabled(True)
+        self.table.setAcceptDrops(True)
+        self.table.setDropIndicatorShown(True)
+        self.table.setDragDropMode(QAbstractItemView.InternalMove)
+        self.table.setDragDropOverwriteMode(False)
+        self.table.row_reordered.connect(self._reorder_task)
 
         self.add_button = QPushButton("Add")
         self.edit_button = QPushButton("Edit")
@@ -169,6 +204,15 @@ class QueuePanel(QWidget):
             return
         self._store.move_task(task_id, offset)
         self.refresh()
+
+    def _reorder_task(self, source_row: int, target_row: int) -> None:
+        item = self.table.item(source_row, 0)
+        if item is None:
+            return
+        self._store.reorder_task(item.text(), target_row)
+        self.refresh()
+        self.table.selectRow(target_row)
+        self.tasks_changed.emit()
 
     def _bulk_import(self) -> None:
         dialog = BulkImportDialog(self)

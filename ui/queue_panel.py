@@ -51,6 +51,7 @@ class QueuePanel(QWidget):
 
         self.add_button = QPushButton("Add")
         self.edit_button = QPushButton("Edit")
+        self.clone_button = QPushButton("Clone")
         self.delete_button = QPushButton("Delete")
         self.up_button = QPushButton("Move Up")
         self.down_button = QPushButton("Move Down")
@@ -59,6 +60,7 @@ class QueuePanel(QWidget):
 
         self.add_button.clicked.connect(self._add_task)
         self.edit_button.clicked.connect(self._edit_task)
+        self.clone_button.clicked.connect(self._clone_task)
         self.delete_button.clicked.connect(self._delete_task)
         self.up_button.clicked.connect(lambda: self._move_task(-1))
         self.down_button.clicked.connect(lambda: self._move_task(1))
@@ -69,6 +71,7 @@ class QueuePanel(QWidget):
         for btn in (
             self.add_button,
             self.edit_button,
+            self.clone_button,
             self.delete_button,
             self.up_button,
             self.down_button,
@@ -137,6 +140,15 @@ class QueuePanel(QWidget):
             self._store.update_task(dialog.result_task())
             self.refresh()
             self.tasks_changed.emit()
+
+    def _clone_task(self) -> None:
+        task_id = self._selected_task_id()
+        if task_id is None:
+            return
+        if self._store.clone_task(task_id) is None:
+            return
+        self.refresh()
+        self.tasks_changed.emit()
 
     def _delete_task(self) -> None:
         task_id = self._selected_task_id()

@@ -1,0 +1,65 @@
+"""Core data model: Task, TaskState, AgentKind."""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional
+
+
+def utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class TaskState(str, Enum):
+    BACKLOG = "Backlog"
+    IN_PROGRESS = "In Progress"
+    IN_REVIEW = "In Review"
+    WILL_RETRY = "Will Retry"
+    DONE = "Done"
+    FAILED = "Failed"
+
+
+class AgentKind(str, Enum):
+    MANAGER = "manager"
+    WORKER = "worker"
+    CONTROLLER = "controller"
+    SYSTEM = "system"
+
+
+@dataclass
+class Task:
+    id: str
+    summary: str
+    description: str
+    repo_url: str
+    state: TaskState = TaskState.BACKLOG
+    attempt_count: int = 0
+    next_retry_at: Optional[str] = None
+    branch: Optional[str] = None
+    workspace_path: Optional[str] = None
+    last_controller_feedback: Optional[str] = None
+    created_at: str = field(default_factory=utcnow_iso)
+    updated_at: str = field(default_factory=utcnow_iso)
+
+    @staticmethod
+    def new(summary: str, description: str, repo_url: str, task_id: Optional[str] = None) -> "Task":
+        return Task(
+            id=task_id or f"TASK-{uuid.uuid4().hex[:8]}",
+            summary=summary,
+            description=description,
+            repo_url=repo_url,
+        )
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["state"] = self.state.value
+        return d
+
+    @staticmethod
+    def from_dict(d: dict) -> "Task":
+        d = dict(d)
+        d["state"] = TaskState(d.get("state", TaskState.BACKLOG.value))
+        return Task(**d)

@@ -6,6 +6,20 @@ def test_task_new_generates_id_prefixed_task():
     assert task.id.startswith("TASK-")
     assert task.state == TaskState.BACKLOG
     assert task.attempt_count == 0
+    assert task.qa_criteria == ""
+    assert task.use_default_qa_criteria is True
+
+
+def test_task_new_accepts_custom_qa_criteria():
+    task = Task.new(
+        summary="Fix bug",
+        description="Details",
+        repo_url="https://example.com/repo.git",
+        qa_criteria="- Must not log secrets",
+        use_default_qa_criteria=False,
+    )
+    assert task.qa_criteria == "- Must not log secrets"
+    assert task.use_default_qa_criteria is False
 
 
 def test_task_new_respects_explicit_id():
@@ -21,7 +35,13 @@ def test_task_round_trips_through_dict():
 
 
 def test_task_clone_copies_content_with_fresh_id_and_state():
-    task = Task.new(summary="Fix bug", description="Details", repo_url="https://example.com/repo.git")
+    task = Task.new(
+        summary="Fix bug",
+        description="Details",
+        repo_url="https://example.com/repo.git",
+        qa_criteria="- Must not log secrets",
+        use_default_qa_criteria=False,
+    )
     task.state = TaskState.IN_PROGRESS
     task.attempt_count = 3
     task.branch = "worker/fix-bug"
@@ -40,3 +60,5 @@ def test_task_clone_copies_content_with_fresh_id_and_state():
     assert clone.branch is None
     assert clone.workspace_path is None
     assert clone.last_controller_feedback is None
+    assert clone.qa_criteria == task.qa_criteria
+    assert clone.use_default_qa_criteria == task.use_default_qa_criteria

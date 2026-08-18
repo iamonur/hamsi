@@ -17,12 +17,21 @@ WORKER_ONE_SHOT_SUFFIX = (
     "to the current branch with a clear commit message."
 )
 
+DEFAULT_QA_CRITERIA = (
+    "- The change fully implements everything described in the task summary and description.\n"
+    "- The change does not break existing functionality.\n"
+    "- The code follows the conventions and style already used elsewhere in this codebase.\n"
+    "- No debug statements, commented-out code, or leftover TODOs were left behind.\n"
+    "- Tests were added or updated where appropriate and pass."
+)
+
 CONTROLLER_INSTRUCTIONS = (
     "You are the QA Controller for an autonomous coding pipeline. Inspect the "
     "current git workspace (run `git diff` / `git log` as needed) and evaluate "
     "whether the change fully and correctly satisfies the task below.\n\n"
     "Task summary: {summary}\n"
     "Task description:\n{description}\n\n"
+    "{criteria_section}"
     "You are running unattended — do not ask questions. Reach a verdict yourself.\n"
     "Your FINAL line of output must be exactly one of:\n"
     "VERDICT: PASS\n"
@@ -44,8 +53,19 @@ def build_worker_prompt(task: Task) -> str:
 
 
 def build_controller_prompt(task: Task) -> str:
+    criteria_parts = []
+    if task.use_default_qa_criteria:
+        criteria_parts.append(DEFAULT_QA_CRITERIA)
+    custom_criteria = task.qa_criteria.strip()
+    if custom_criteria:
+        criteria_parts.append(custom_criteria)
+
+    criteria_section = ""
+    if criteria_parts:
+        criteria_section = "QA criteria to check:\n" + "\n".join(criteria_parts) + "\n\n"
+
     return CONTROLLER_INSTRUCTIONS.format(
-        summary=task.summary, description=task.description
+        summary=task.summary, description=task.description, criteria_section=criteria_section
     )
 
 

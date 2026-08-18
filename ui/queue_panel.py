@@ -82,6 +82,7 @@ class QueuePanel(QWidget):
         header.setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.itemDoubleClicked.connect(self._edit_task)
 
         # Drag a row onto another row to re-prioritize it, same underlying
         # operation as the Move Up/Down buttons and context menu actions.

@@ -32,6 +32,10 @@ class StateStore:
 
     # -- persistence -----------------------------------------------------
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
     def load(self) -> None:
         with self._lock:
             if not self._path.exists():

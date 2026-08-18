@@ -3,6 +3,8 @@ import, Jira import. See REQUIREMENTS.md 5.1."""
 
 from __future__ import annotations
 
+from typing import Optional
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
@@ -19,9 +21,11 @@ from PyQt5.QtWidgets import (
 )
 
 from orchestrator.state_store import StateStore
+from orchestrator.task_history import TaskHistoryStore
 from ui.bulk_import_dialog import BulkImportDialog
 from ui.jira_import_dialog import JiraImportDialog
 from ui.task_dialog import TaskDialog
+from ui.task_history_dialog import TaskHistoryDialog
 from ui.theme import STATE_COLORS
 
 COLUMNS = ["ID", "Summary", "State", "Attempts", "Repo", "Updated"]
@@ -32,9 +36,10 @@ class QueuePanel(QWidget):
     tasks_changed = pyqtSignal()
     refreshed = pyqtSignal(list)  # emitted with the current task list on every refresh
 
-    def __init__(self, store: StateStore, parent=None):
+    def __init__(self, store: StateStore, history: Optional[TaskHistoryStore] = None, parent=None):
         super().__init__(parent)
         self._store = store
+        self._history = history or TaskHistoryStore(store.path.parent / "task_logs")
 
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
@@ -58,6 +63,7 @@ class QueuePanel(QWidget):
         self.delete_button = QPushButton("Delete")
         self.up_button = QPushButton("Move Up")
         self.down_button = QPushButton("Move Down")
+        self.history_button = QPushButton("History")
         self.bulk_import_button = QPushButton("Bulk Import…")
         self.jira_import_button = QPushButton("Import from Jira…")
 
@@ -67,6 +73,7 @@ class QueuePanel(QWidget):
         self.delete_button.clicked.connect(self._delete_task)
         self.up_button.clicked.connect(lambda: self._move_task(-1))
         self.down_button.clicked.connect(lambda: self._move_task(1))
+        self.history_button.clicked.connect(self._view_history)
         self.bulk_import_button.clicked.connect(self._bulk_import)
         self.jira_import_button.clicked.connect(self._jira_import)
 
@@ -78,6 +85,7 @@ class QueuePanel(QWidget):
             self.delete_button,
             self.up_button,
             self.down_button,
+            self.history_button,
             self.bulk_import_button,
             self.jira_import_button,
         ):
@@ -170,6 +178,16 @@ class QueuePanel(QWidget):
         self._store.move_task(task_id, offset)
         self.refresh()
 
+    def _view_history(self) -> None:
+        task_id = self._selected_task_id()
+        if task_id is None:
+            return
+        task = self._store.get_task(task_id)
+        if task is None:
+            return
+        dialog = TaskHistoryDialog(task, self._history, self)
+        dialog.exec_()
+
     def _bulk_import(self) -> None:
         dialog = BulkImportDialog(self)
         if dialog.exec_():
@@ -204,6 +222,8 @@ class QueuePanel(QWidget):
         menu.addSeparator()
         menu.addAction("Move Up", lambda: self._move_task(-1))
         menu.addAction("Move Down", lambda: self._move_task(1))
+        menu.addSeparator()
+        menu.addAction("View History", self._view_history)
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 
     def _show_empty_context_menu(self, pos) -> None:

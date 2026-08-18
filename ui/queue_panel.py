@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -48,6 +49,8 @@ class QueuePanel(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(4, QHeaderView.Stretch)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
 
         self.add_button = QPushButton("Add")
         self.edit_button = QPushButton("Edit")
@@ -182,3 +185,30 @@ class QueuePanel(QWidget):
                 self._store.add_task(task)
             self.refresh()
             self.tasks_changed.emit()
+
+    # -- context menu -----------------------------------------------------
+
+    def _show_context_menu(self, pos) -> None:
+        row = self.table.indexAt(pos).row()
+        if row >= 0:
+            self.table.selectRow(row)
+            self._show_task_context_menu(pos)
+        else:
+            self._show_empty_context_menu(pos)
+
+    def _show_task_context_menu(self, pos) -> None:
+        menu = QMenu(self)
+        menu.addAction("Edit", self._edit_task)
+        menu.addAction("Clone", self._clone_task)
+        menu.addAction("Delete", self._delete_task)
+        menu.addSeparator()
+        menu.addAction("Move Up", lambda: self._move_task(-1))
+        menu.addAction("Move Down", lambda: self._move_task(1))
+        menu.exec_(self.table.viewport().mapToGlobal(pos))
+
+    def _show_empty_context_menu(self, pos) -> None:
+        menu = QMenu(self)
+        menu.addAction("Add", self._add_task)
+        menu.addAction("Bulk Import…", self._bulk_import)
+        menu.addAction("Import from Jira…", self._jira_import)
+        menu.exec_(self.table.viewport().mapToGlobal(pos))

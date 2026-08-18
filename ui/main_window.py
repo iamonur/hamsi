@@ -54,8 +54,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        layout.addWidget(self.stats_panel)
-        layout.addWidget(splitter)
+        # Stretch factors give the overview a fixed 20% share of the vertical
+        # space so the queue table and terminal below it get the rest.
+        layout.addWidget(self.stats_panel, 1)
+        layout.addWidget(splitter, 4)
         self.setCentralWidget(central)
 
         self._build_toolbar()

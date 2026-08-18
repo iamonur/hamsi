@@ -36,6 +36,37 @@ def test_delete_task_removes_it(tmp_path):
     assert store.get_task(task.id) is None
 
 
+def test_clone_task_adds_copy_after_original(tmp_path):
+    store = make_store(tmp_path)
+    original = Task.new(summary="first", description="d", repo_url="r")
+    other = Task.new(summary="second", description="d", repo_url="r")
+    store.add_task(original)
+    store.add_task(other)
+
+    cloned = store.clone_task(original.id)
+
+    assert cloned is not None
+    assert cloned.id != original.id
+    assert cloned.summary == f"Copy of {original.summary}"
+    ids = [t.id for t in store.list_tasks()]
+    assert ids == [original.id, cloned.id, other.id]
+
+
+def test_clone_task_persists_to_disk(tmp_path):
+    store = make_store(tmp_path)
+    original = Task.new(summary="first", description="d", repo_url="r")
+    store.add_task(original)
+    cloned = store.clone_task(original.id)
+
+    reloaded = make_store(tmp_path)
+    assert [t.id for t in reloaded.list_tasks()] == [original.id, cloned.id]
+
+
+def test_clone_task_returns_none_for_unknown_id(tmp_path):
+    store = make_store(tmp_path)
+    assert store.clone_task("missing") is None
+
+
 def test_move_task_reorders_list(tmp_path):
     store = make_store(tmp_path)
     first = Task.new(summary="first", description="d", repo_url="r")

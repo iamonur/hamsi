@@ -89,6 +89,17 @@ class StateStore:
             self._tasks = [t for t in self._tasks if t.id != task_id]
             self.save()
 
+    def clone_task(self, task_id: str) -> Optional[Task]:
+        """Add a fresh copy of an existing task right after it in priority order."""
+        with self._lock:
+            idx = next((i for i, t in enumerate(self._tasks) if t.id == task_id), None)
+            if idx is None:
+                return None
+            cloned = self._tasks[idx].clone()
+            self._tasks.insert(idx + 1, cloned)
+            self.save()
+            return cloned
+
     def move_task(self, task_id: str, offset: int) -> None:
         """Move a task up (-1) or down (+1) in priority order."""
         with self._lock:

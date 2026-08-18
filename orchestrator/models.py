@@ -53,6 +53,14 @@ class Task:
             repo_url=repo_url,
         )
 
+    def clone(self) -> "Task":
+        """Return a new task copied from this one, reset to a fresh Backlog state."""
+        return Task.new(
+            summary=f"Copy of {self.summary}",
+            description=self.description,
+            repo_url=self.repo_url,
+        )
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["state"] = self.state.value

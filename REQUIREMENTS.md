@@ -76,7 +76,7 @@ The desktop application must include three primary UI panels:
 ### 5.1. Queue Dashboard (Left/Top Panel)
 *   A visual list/table of all tasks loaded from the JSON state file.
 *   Displays Task ID, Summary, and Current State.
-*   Controls to Add, Edit, Delete, or prioritize tasks.
+*   Controls to Add, Edit, Clone, Delete, or prioritize tasks.
 
 ### 5.2. Live Terminal Output (Right/Bottom Panel)
 *   A read-only console window displaying `stdout` and `stderr` from the `Popen` processes.

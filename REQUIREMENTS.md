@@ -40,6 +40,7 @@ The application orchestrates tasks through three distinct internal sub-agents:
     *   Spawns a separate instance of `claude-code` pointing at the local workspace.
     *   Evaluates the changes made by the Worker against the original task requirements.
     *   **Feedback Loop:** If the Controller determines the task is incomplete or incorrect, it shifts the task state back to `In Progress`, triggering the Worker to immediately attempt fixes on the *existing* local branch. If validated, it approves the task to the Manager.
+*   **QA Criteria:** Evaluates the change against a per-task QA criteria list. This is the built-in default checklist (correctness, no regressions, style conventions, no debug leftovers, test coverage), any task-specific custom criteria the user entered, or both — depending on the task's QA configuration (see 4.1).
 
 ## 4. Task Management & State Machine
 ### 4.1. Task Definition
@@ -48,6 +49,8 @@ A task represents a unit of work and consists of:
 *   `Summary` (Used for branch naming and overview)
 *   `Description` (The detailed prompt/requirements)
 *   `Target Repository URL`
+*   `QA Criteria` (Optional custom checklist the Controller Agent evaluates the change against, configured on a "QA Criteria" tab of the Edit Task window)
+*   `Use Default QA Criteria` (Checkbox, on by default; when enabled the Controller Agent also applies the application's built-in default QA checklist in addition to any custom criteria)
 
 ### 4.2. Input Methods
 Tasks can be ingested via three methods:

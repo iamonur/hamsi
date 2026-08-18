@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 queue_state.json
+task_logs/
 workspaces/
 .pytest_cache/
 *.egg-info/

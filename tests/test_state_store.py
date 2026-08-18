@@ -79,6 +79,55 @@ def test_move_task_reorders_list(tmp_path):
     assert [t.id for t in store.list_tasks()] == [second.id, first.id]
 
 
+def test_reorder_task_moves_to_arbitrary_index(tmp_path):
+    store = make_store(tmp_path)
+    first = Task.new(summary="first", description="d", repo_url="r")
+    second = Task.new(summary="second", description="d", repo_url="r")
+    third = Task.new(summary="third", description="d", repo_url="r")
+    store.add_task(first)
+    store.add_task(second)
+    store.add_task(third)
+
+    store.reorder_task(third.id, 0)
+
+    assert [t.id for t in store.list_tasks()] == [third.id, first.id, second.id]
+
+
+def test_reorder_task_clamps_out_of_range_index(tmp_path):
+    store = make_store(tmp_path)
+    first = Task.new(summary="first", description="d", repo_url="r")
+    second = Task.new(summary="second", description="d", repo_url="r")
+    store.add_task(first)
+    store.add_task(second)
+
+    store.reorder_task(first.id, 999)
+
+    assert [t.id for t in store.list_tasks()] == [second.id, first.id]
+
+
+def test_reorder_task_persists_to_disk(tmp_path):
+    store = make_store(tmp_path)
+    first = Task.new(summary="first", description="d", repo_url="r")
+    second = Task.new(summary="second", description="d", repo_url="r")
+    store.add_task(first)
+    store.add_task(second)
+
+    store.reorder_task(second.id, 0)
+
+    reloaded = make_store(tmp_path)
+    assert [t.id for t in reloaded.list_tasks()] == [second.id, first.id]
+
+
+def test_reorder_task_ignores_unknown_id(tmp_path):
+    store = make_store(tmp_path)
+    first = Task.new(summary="first", description="d", repo_url="r")
+    store.add_task(first)
+
+    store.reorder_task("missing", 0)
+
+    assert [t.id for t in store.list_tasks()] == [first.id]
+
+
 def test_settings_round_trip(tmp_path):
     store = make_store(tmp_path)
     store.update_settings(AppSettings(retry_interval_minutes=5, max_retries=3, task_timeout_minutes=10))

@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
 
 from orchestrator.manager_thread import ManagerThread
 from orchestrator.state_store import StateStore
+from orchestrator.task_history import TaskHistoryStore
 from ui import theme
 from ui.queue_panel import QueuePanel
 from ui.settings_dialog import SettingsDialog
@@ -29,6 +30,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._store = store
         self._claude_bin = claude_bin
+        self._history = TaskHistoryStore(store.path.parent / "task_logs")
         self._manager: ManagerThread | None = None
         self._dark_mode = True
 
@@ -36,7 +38,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 780)
 
         self.stats_panel = StatsPanel(self)
-        self.queue_panel = QueuePanel(store, self)
+        self.queue_panel = QueuePanel(store, history=self._history, parent=self)
         self.terminal_panel = TerminalPanel(self)
         self.queue_panel.refreshed.connect(self.stats_panel.update_counts)
         # QueuePanel already ran its own refresh() during __init__, before the
@@ -52,8 +54,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        layout.addWidget(self.stats_panel)
-        layout.addWidget(splitter)
+        # Stretch factors give the overview a fixed 20% share of the vertical
+        # space so the queue table and terminal below it get the rest.
+        layout.addWidget(self.stats_panel, 1)
+        layout.addWidget(splitter, 4)
         self.setCentralWidget(central)
 
         self._build_toolbar()
@@ -96,7 +100,9 @@ class MainWindow(QMainWindow):
             self.manager_status_label.setText("Manager: Stopping…")
             return
 
-        self._manager = ManagerThread(self._store, claude_bin=self._claude_bin)
+        self._manager = ManagerThread(
+            self._store, claude_bin=self._claude_bin, history=self._history
+        )
         self._manager.log_line.connect(self.terminal_panel.append_line)
         self._manager.task_changed.connect(lambda _task_id: self.queue_panel.refresh())
         self._manager.finished.connect(self._on_manager_finished)

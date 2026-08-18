@@ -3,6 +3,8 @@ import, Jira import. See REQUIREMENTS.md 5.1."""
 
 from __future__ import annotations
 
+from typing import Optional
+
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
@@ -20,9 +22,11 @@ from PyQt5.QtWidgets import (
 
 from orchestrator import git_ops
 from orchestrator.state_store import StateStore
+from orchestrator.task_history import TaskHistoryStore
 from ui.bulk_import_dialog import BulkImportDialog
 from ui.jira_import_dialog import JiraImportDialog
 from ui.task_dialog import TaskDialog
+from ui.task_history_dialog import TaskHistoryDialog
 from ui.theme import STATE_COLORS
 
 COLUMNS = ["ID", "Summary", "State", "Attempts", "Time Spent", "Repo", "Updated"]
@@ -44,15 +48,42 @@ def format_duration(seconds: float) -> str:
     return f"{hours}h {minutes:02d}m"
 
 
+class _QueueTable(QTableWidget):
+    """QTableWidget that reports whole-row drag-and-drop reordering.
+
+    QTableWidget's built-in InternalMove drop handling operates on individual
+    cells, not whole rows, so we take over dropEvent entirely: figure out
+    which row was dragged onto which row, and let the panel re-fetch/redraw
+    from the store rather than trying to shuffle QTableWidgetItems by hand.
+    """
+
+    row_reordered = pyqtSignal(int, int)  # source_row, target_row
+
+    def dropEvent(self, event) -> None:
+        if event.source() is not self:
+            super().dropEvent(event)
+            return
+        event.ignore()
+        source_row = self.currentRow()
+        if source_row < 0:
+            return
+        target_index = self.indexAt(event.pos())
+        target_row = target_index.row() if target_index.isValid() else self.rowCount() - 1
+        if target_row < 0 or target_row == source_row:
+            return
+        self.row_reordered.emit(source_row, target_row)
+
+
 class QueuePanel(QWidget):
     tasks_changed = pyqtSignal()
     refreshed = pyqtSignal(list)  # emitted with the current task list on every refresh
 
-    def __init__(self, store: StateStore, parent=None):
+    def __init__(self, store: StateStore, history: Optional[TaskHistoryStore] = None, parent=None):
         super().__init__(parent)
         self._store = store
+        self._history = history or TaskHistoryStore(store.path.parent / "task_logs")
 
-        self.table = QTableWidget(0, len(COLUMNS))
+        self.table = _QueueTable(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -67,6 +98,16 @@ class QueuePanel(QWidget):
         header.setSectionResizeMode(5, QHeaderView.Stretch)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.itemDoubleClicked.connect(self._edit_task)
+
+        # Drag a row onto another row to re-prioritize it, same underlying
+        # operation as the Move Up/Down buttons and context menu actions.
+        self.table.setDragEnabled(True)
+        self.table.setAcceptDrops(True)
+        self.table.setDropIndicatorShown(True)
+        self.table.setDragDropMode(QAbstractItemView.InternalMove)
+        self.table.setDragDropOverwriteMode(False)
+        self.table.row_reordered.connect(self._reorder_task)
 
         self.add_button = QPushButton("Add")
         self.edit_button = QPushButton("Edit")
@@ -75,6 +116,7 @@ class QueuePanel(QWidget):
         self.up_button = QPushButton("Move Up")
         self.down_button = QPushButton("Move Down")
         self.push_button = QPushButton("Push to Remote")
+        self.history_button = QPushButton("History")
         self.bulk_import_button = QPushButton("Bulk Import…")
         self.jira_import_button = QPushButton("Import from Jira…")
 
@@ -85,6 +127,7 @@ class QueuePanel(QWidget):
         self.up_button.clicked.connect(lambda: self._move_task(-1))
         self.down_button.clicked.connect(lambda: self._move_task(1))
         self.push_button.clicked.connect(self._push_to_remote)
+        self.history_button.clicked.connect(self._view_history)
         self.bulk_import_button.clicked.connect(self._bulk_import)
         self.jira_import_button.clicked.connect(self._jira_import)
 
@@ -97,6 +140,7 @@ class QueuePanel(QWidget):
             self.up_button,
             self.down_button,
             self.push_button,
+            self.history_button,
             self.bulk_import_button,
             self.jira_import_button,
         ):
@@ -230,6 +274,25 @@ class QueuePanel(QWidget):
             return
         QMessageBox.information(self, "Push to Remote", f"Pushed {task.branch} to origin.")
 
+    def _reorder_task(self, source_row: int, target_row: int) -> None:
+        item = self.table.item(source_row, 0)
+        if item is None:
+            return
+        self._store.reorder_task(item.text(), target_row)
+        self.refresh()
+        self.table.selectRow(target_row)
+        self.tasks_changed.emit()
+
+    def _view_history(self) -> None:
+        task_id = self._selected_task_id()
+        if task_id is None:
+            return
+        task = self._store.get_task(task_id)
+        if task is None:
+            return
+        dialog = TaskHistoryDialog(task, self._history, self)
+        dialog.exec_()
+
     def _bulk_import(self) -> None:
         dialog = BulkImportDialog(self)
         if dialog.exec_():
@@ -266,6 +329,7 @@ class QueuePanel(QWidget):
         menu.addAction("Move Down", lambda: self._move_task(1))
         menu.addSeparator()
         menu.addAction("Push to Remote", self._push_to_remote)
+        menu.addAction("View History", self._view_history)
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 
     def _show_empty_context_menu(self, pos) -> None:

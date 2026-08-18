@@ -138,3 +138,46 @@ def test_pick_next_task_returns_backlog_task(tmp_path):
     picked = manager._pick_next_task()
     assert picked is not None
     assert picked.id == task.id
+
+
+def test_process_task_records_history_for_the_task(tmp_path):
+    manager, store = make_manager(tmp_path)
+    task = Task.new(summary="Add feature", description="Do the thing", repo_url="https://example.com/r.git")
+    store.add_task(task)
+
+    with patch.object(mt, "run_claude") as run_claude, \
+         patch.object(mt.git_ops, "branch_name", return_value="feature/test"), \
+         patch.object(mt.git_ops, "ensure_workspace", return_value=tmp_path), \
+         patch.object(mt.git_ops, "workspace_path_for", return_value=tmp_path):
+        run_claude.side_effect = [
+            ClaudeRunResult(exit_code=0, output="worker done"),
+            ClaudeRunResult(exit_code=0, output="looks good\nVERDICT: PASS"),
+        ]
+        manager._process_task(task)
+
+    entries = manager._history.read(task.id)
+    assert entries, "expected history entries for the processed task"
+    assert all(e.agent == "manager" for e in entries)
+    assert any("Picked up" in e.text for e in entries)
+    assert any("validated. Marking Done" in e.text for e in entries)
+
+
+def test_history_is_isolated_per_task(tmp_path):
+    manager, store = make_manager(tmp_path)
+    first = Task.new(summary="First", description="d", repo_url="https://example.com/r.git")
+    second = Task.new(summary="Second", description="d", repo_url="https://example.com/r.git")
+    store.add_task(first)
+    store.add_task(second)
+
+    with patch.object(mt, "run_claude") as run_claude, \
+         patch.object(mt.git_ops, "branch_name", return_value="feature/test"), \
+         patch.object(mt.git_ops, "ensure_workspace", return_value=tmp_path), \
+         patch.object(mt.git_ops, "workspace_path_for", return_value=tmp_path):
+        run_claude.side_effect = [
+            ClaudeRunResult(exit_code=0, output="worker done"),
+            ClaudeRunResult(exit_code=0, output="VERDICT: PASS"),
+        ]
+        manager._process_task(first)
+
+    assert manager._history.read(first.id)
+    assert manager._history.read(second.id) == []

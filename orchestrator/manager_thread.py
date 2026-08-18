@@ -16,6 +16,7 @@ from orchestrator.claude_runner import ClaudeTimeoutError, run_claude
 from orchestrator.models import AgentKind, Task, TaskState, utcnow_iso
 from orchestrator.prompts import build_controller_prompt, build_worker_prompt, parse_verdict
 from orchestrator.state_store import StateStore
+from orchestrator.task_history import TaskHistoryStore
 
 POLL_INTERVAL_SECONDS = 5
 STOP_CHECK_INTERVAL_SECONDS = 1
@@ -29,12 +30,20 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
 
 class ManagerThread(QThread):
     log_line = pyqtSignal(str, str)  # agent kind value, text
+    task_log_line = pyqtSignal(str, str, str)  # task id, agent kind value, text
     task_changed = pyqtSignal(str)  # task id
 
-    def __init__(self, store: StateStore, claude_bin: str = "claude", parent=None):
+    def __init__(
+        self,
+        store: StateStore,
+        claude_bin: str = "claude",
+        history: Optional[TaskHistoryStore] = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._store = store
         self._claude_bin = claude_bin
+        self._history = history or TaskHistoryStore(store.path.parent / "task_logs")
         self._stop_requested = False
 
     def request_stop(self) -> None:
@@ -42,8 +51,15 @@ class ManagerThread(QThread):
 
     # -- logging helpers -----------------------------------------------
 
-    def _log(self, agent: AgentKind, text: str) -> None:
+    def _log(self, agent: AgentKind, text: str, task: Optional[Task] = None) -> None:
+        """Emits to the shared Live Terminal, and, when a task is given,
+        also persists the line to that task's own audit log so its history
+        survives independently of whatever else the terminal shows later.
+        """
         self.log_line.emit(agent.value, text)
+        if task is not None:
+            self._history.append(task.id, agent.value, text)
+            self.task_log_line.emit(task.id, agent.value, text)
 
     def _set_state(self, task: Task, state: TaskState, **fields) -> Task:
         task.state = state
@@ -86,7 +102,7 @@ class ManagerThread(QThread):
 
     def _process_task(self, task: Task) -> None:
         settings = self._store.get_settings()
-        self._log(AgentKind.MANAGER, f"Picked up {task.id}: {task.summary}")
+        self._log(AgentKind.MANAGER, f"Picked up {task.id}: {task.summary}", task)
         self._set_state(task, TaskState.IN_PROGRESS, active_since=utcnow_iso())
         try:
             self._run_task_to_completion(task, settings)
@@ -125,15 +141,17 @@ class ManagerThread(QThread):
                 return
 
             if verdict_passed:
-                self._log(AgentKind.MANAGER, f"{task.id} validated. Marking Done.")
+                self._log(AgentKind.MANAGER, f"{task.id} validated. Marking Done.", task)
                 self._set_state(task, TaskState.DONE, last_controller_feedback=None)
                 return
 
             # Controller rejected: loop back to Worker immediately, no cooldown.
-            self._log(AgentKind.MANAGER, f"{task.id} rejected by Controller: {reason}")
+            self._log(AgentKind.MANAGER, f"{task.id} rejected by Controller: {reason}", task)
             task.attempt_count += 1
             if task.attempt_count > settings.max_retries:
-                self._log(AgentKind.MANAGER, f"{task.id} exceeded max retries. Marking Failed.")
+                self._log(
+                    AgentKind.MANAGER, f"{task.id} exceeded max retries. Marking Failed.", task
+                )
                 self._set_state(task, TaskState.FAILED, last_controller_feedback=reason)
                 return
             self._set_state(
@@ -143,19 +161,21 @@ class ManagerThread(QThread):
     def _run_worker_step(self, task: Task, timeout_minutes: int) -> bool:
         try:
             branch = git_ops.branch_name(task.summary)
-            self._log(AgentKind.MANAGER, f"Preparing workspace for {task.id} on branch {branch}...")
+            self._log(
+                AgentKind.MANAGER, f"Preparing workspace for {task.id} on branch {branch}...", task
+            )
             workspace = git_ops.ensure_workspace(task.id, task.repo_url, branch)
             task.branch = branch
             task.workspace_path = str(workspace)
             self._store.update_task(task)
 
-            self._log(AgentKind.MANAGER, f"Starting Worker for {task.id}...")
+            self._log(AgentKind.MANAGER, f"Starting Worker for {task.id}...", task)
             prompt = build_worker_prompt(task)
             result = run_claude(
                 prompt=prompt,
                 cwd=workspace,
                 env=env_store.subprocess_env(),
-                on_line=lambda line: self._log(AgentKind.WORKER, line),
+                on_line=lambda line: self._log(AgentKind.WORKER, line, task),
                 timeout_seconds=timeout_minutes * 60,
                 claude_bin=self._claude_bin,
             )
@@ -163,11 +183,12 @@ class ManagerThread(QThread):
                 self._log(
                     AgentKind.SYSTEM,
                     f"Worker exited with code {result.exit_code} for {task.id}.",
+                    task,
                 )
                 return False
             return True
         except (ClaudeTimeoutError, git_ops.GitOpsError, OSError) as exc:
-            self._log(AgentKind.SYSTEM, f"Worker step failed for {task.id}: {exc}")
+            self._log(AgentKind.SYSTEM, f"Worker step failed for {task.id}: {exc}", task)
             return False
 
     def _run_controller_step(self, task: Task, timeout_minutes: int):
@@ -177,20 +198,22 @@ class ManagerThread(QThread):
                 prompt=prompt,
                 cwd=git_ops.workspace_path_for(task.id),
                 env=env_store.subprocess_env(),
-                on_line=lambda line: self._log(AgentKind.CONTROLLER, line),
+                on_line=lambda line: self._log(AgentKind.CONTROLLER, line, task),
                 timeout_seconds=timeout_minutes * 60,
                 claude_bin=self._claude_bin,
             )
             verdict = parse_verdict(result.output)
             return verdict.passed, verdict.reason
         except (ClaudeTimeoutError, OSError) as exc:
-            self._log(AgentKind.SYSTEM, f"Controller step failed for {task.id}: {exc}")
+            self._log(AgentKind.SYSTEM, f"Controller step failed for {task.id}: {exc}", task)
             return None, None
 
     def _handle_failure(self, task: Task, settings) -> None:
         task.attempt_count += 1
         if task.attempt_count > settings.max_retries:
-            self._log(AgentKind.MANAGER, f"{task.id} exceeded max retries. Marking Failed.")
+            self._log(
+                AgentKind.MANAGER, f"{task.id} exceeded max retries. Marking Failed.", task
+            )
             self._set_state(task, TaskState.FAILED)
             return
         next_retry = datetime.now(timezone.utc) + timedelta(
@@ -200,6 +223,7 @@ class ManagerThread(QThread):
             AgentKind.MANAGER,
             f"{task.id} will retry in {settings.retry_interval_minutes} minute(s) "
             f"(attempt {task.attempt_count}/{settings.max_retries}).",
+            task,
         )
         self._set_state(
             task, TaskState.WILL_RETRY, next_retry_at=next_retry.isoformat()

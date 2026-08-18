@@ -41,6 +41,8 @@ class Task:
     branch: Optional[str] = None
     workspace_path: Optional[str] = None
     last_controller_feedback: Optional[str] = None
+    qa_criteria: str = ""
+    use_default_qa_criteria: bool = True
     created_at: str = field(default_factory=utcnow_iso)
     updated_at: str = field(default_factory=utcnow_iso)
     time_spent_seconds: float = 0.0
@@ -56,12 +58,21 @@ class Task:
         return total
 
     @staticmethod
-    def new(summary: str, description: str, repo_url: str, task_id: Optional[str] = None) -> "Task":
+    def new(
+        summary: str,
+        description: str,
+        repo_url: str,
+        task_id: Optional[str] = None,
+        qa_criteria: str = "",
+        use_default_qa_criteria: bool = True,
+    ) -> "Task":
         return Task(
             id=task_id or f"TASK-{uuid.uuid4().hex[:8]}",
             summary=summary,
             description=description,
             repo_url=repo_url,
+            qa_criteria=qa_criteria,
+            use_default_qa_criteria=use_default_qa_criteria,
         )
 
     def clone(self) -> "Task":
@@ -70,6 +81,8 @@ class Task:
             summary=f"Copy of {self.summary}",
             description=self.description,
             repo_url=self.repo_url,
+            qa_criteria=self.qa_criteria,
+            use_default_qa_criteria=self.use_default_qa_criteria,
         )
 
     def to_dict(self) -> dict:

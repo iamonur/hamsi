@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import QApplication
 
 from orchestrator import env_store
 from orchestrator.state_store import StateStore
+from ui import theme
 from ui.main_window import MainWindow
 
 
@@ -18,6 +19,7 @@ def main() -> int:
     os.environ.update(env_store.read_env())
 
     app = QApplication(sys.argv)
+    theme.apply_theme(app, dark=True)
     store = StateStore()
     window = MainWindow(store)
     window.show()

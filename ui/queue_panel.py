@@ -3,10 +3,12 @@ import, Jira import. See REQUIREMENTS.md 5.1."""
 
 from __future__ import annotations
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
+    QHeaderView,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -19,12 +21,15 @@ from orchestrator.state_store import StateStore
 from ui.bulk_import_dialog import BulkImportDialog
 from ui.jira_import_dialog import JiraImportDialog
 from ui.task_dialog import TaskDialog
+from ui.theme import STATE_COLORS
 
-COLUMNS = ["ID", "Summary", "State"]
+COLUMNS = ["ID", "Summary", "State", "Attempts", "Repo", "Updated"]
+STATE_COL = 2
 
 
 class QueuePanel(QWidget):
     tasks_changed = pyqtSignal()
+    refreshed = pyqtSignal(list)  # emitted with the current task list on every refresh
 
     def __init__(self, store: StateStore, parent=None):
         super().__init__(parent)
@@ -35,6 +40,14 @@ class QueuePanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        # Row order is priority order (see Move Up/Down below), so the table
+        # is intentionally not sortable-by-column - that would decouple the
+        # visible order from what those buttons actually move.
+        self.table.verticalHeader().setVisible(False)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
 
         self.add_button = QPushButton("Add")
         self.edit_button = QPushButton("Edit")
@@ -79,7 +92,23 @@ class QueuePanel(QWidget):
         for row, task in enumerate(tasks):
             self.table.setItem(row, 0, QTableWidgetItem(task.id))
             self.table.setItem(row, 1, QTableWidgetItem(task.summary))
-            self.table.setItem(row, 2, QTableWidgetItem(task.state.value))
+
+            state_item = QTableWidgetItem(task.state.value)
+            color = QColor(STATE_COLORS[task.state])
+            state_item.setBackground(color)
+            state_item.setForeground(QColor("#0f1117"))
+            state_item.setTextAlignment(Qt.AlignCenter)
+            font = state_item.font()
+            font.setBold(True)
+            state_item.setFont(font)
+            if task.last_controller_feedback:
+                state_item.setToolTip(task.last_controller_feedback)
+            self.table.setItem(row, STATE_COL, state_item)
+
+            self.table.setItem(row, 3, QTableWidgetItem(str(task.attempt_count)))
+            self.table.setItem(row, 4, QTableWidgetItem(task.repo_url))
+            self.table.setItem(row, 5, QTableWidgetItem(task.updated_at.replace("T", " ")[:19]))
+        self.refreshed.emit(tasks)
 
     def _selected_task_id(self):
         rows = self.table.selectionModel().selectedRows()

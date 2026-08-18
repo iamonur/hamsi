@@ -43,6 +43,17 @@ class Task:
     last_controller_feedback: Optional[str] = None
     created_at: str = field(default_factory=utcnow_iso)
     updated_at: str = field(default_factory=utcnow_iso)
+    time_spent_seconds: float = 0.0
+    active_since: Optional[str] = None
+
+    def total_time_spent_seconds(self) -> float:
+        """Accumulated implementation time, including the in-flight session
+        if the task is currently being worked on."""
+        total = self.time_spent_seconds
+        if self.active_since:
+            started = datetime.fromisoformat(self.active_since)
+            total += (datetime.now(timezone.utc) - started).total_seconds()
+        return total
 
     @staticmethod
     def new(summary: str, description: str, repo_url: str, task_id: Optional[str] = None) -> "Task":

@@ -13,7 +13,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from orchestrator import env_store, git_ops
 from orchestrator.claude_runner import ClaudeTimeoutError, run_claude
-from orchestrator.models import AgentKind, Task, TaskState
+from orchestrator.models import AgentKind, Task, TaskState, utcnow_iso
 from orchestrator.prompts import build_controller_prompt, build_worker_prompt, parse_verdict
 from orchestrator.state_store import StateStore
 
@@ -87,8 +87,26 @@ class ManagerThread(QThread):
     def _process_task(self, task: Task) -> None:
         settings = self._store.get_settings()
         self._log(AgentKind.MANAGER, f"Picked up {task.id}: {task.summary}")
-        self._set_state(task, TaskState.IN_PROGRESS)
+        self._set_state(task, TaskState.IN_PROGRESS, active_since=utcnow_iso())
+        try:
+            self._run_task_to_completion(task, settings)
+        finally:
+            self._stop_clock(task)
 
+    def _stop_clock(self, task: Task) -> None:
+        """Fold the current active session into time_spent_seconds. Called
+        whenever a task pauses (done, failed, retry cooldown, or manager
+        stop) so the queue table shows real implementation time only."""
+        if not task.active_since:
+            return
+        started = _parse_iso(task.active_since)
+        elapsed = (datetime.now(timezone.utc) - started).total_seconds() if started else 0.0
+        task.time_spent_seconds += max(0.0, elapsed)
+        task.active_since = None
+        self._store.update_task(task)
+        self.task_changed.emit(task.id)
+
+    def _run_task_to_completion(self, task: Task, settings) -> None:
         while True:
             if self._stop_requested:
                 return

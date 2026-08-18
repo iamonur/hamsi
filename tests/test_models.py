@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from orchestrator.models import Task, TaskState
 
 
@@ -40,3 +42,18 @@ def test_task_clone_copies_content_with_fresh_id_and_state():
     assert clone.branch is None
     assert clone.workspace_path is None
     assert clone.last_controller_feedback is None
+    assert clone.time_spent_seconds == 0.0
+    assert clone.active_since is None
+
+
+def test_total_time_spent_returns_accumulated_seconds_when_idle():
+    task = Task.new(summary="s", description="d", repo_url="r")
+    task.time_spent_seconds = 120.0
+    assert task.total_time_spent_seconds() == 120.0
+
+
+def test_total_time_spent_adds_in_flight_session():
+    task = Task.new(summary="s", description="d", repo_url="r")
+    task.time_spent_seconds = 60.0
+    task.active_since = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    assert task.total_time_spent_seconds() >= 89.0

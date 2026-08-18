@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -71,3 +72,16 @@ def ensure_workspace(task_id: str, repo_url: str, branch: str) -> Path:
         _run(["git", "checkout", "-b", branch], cwd=path)
 
     return path
+
+
+def push_to_remote(task_id: str, branch: str) -> None:
+    """Push a task's local feature branch to origin, setting up tracking."""
+    path = workspace_path_for(task_id)
+    _run(["git", "push", "-u", "origin", branch], cwd=path)
+
+
+def delete_workspace(task_id: str) -> None:
+    """Remove a task's local clone, if one exists, to free up disk space."""
+    path = workspace_path_for(task_id)
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)

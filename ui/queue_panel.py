@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from orchestrator import git_ops
 from orchestrator.state_store import StateStore
 from ui.bulk_import_dialog import BulkImportDialog
 from ui.jira_import_dialog import JiraImportDialog
@@ -58,6 +59,7 @@ class QueuePanel(QWidget):
         self.delete_button = QPushButton("Delete")
         self.up_button = QPushButton("Move Up")
         self.down_button = QPushButton("Move Down")
+        self.push_button = QPushButton("Push to Remote")
         self.bulk_import_button = QPushButton("Bulk Import…")
         self.jira_import_button = QPushButton("Import from Jira…")
 
@@ -67,6 +69,7 @@ class QueuePanel(QWidget):
         self.delete_button.clicked.connect(self._delete_task)
         self.up_button.clicked.connect(lambda: self._move_task(-1))
         self.down_button.clicked.connect(lambda: self._move_task(1))
+        self.push_button.clicked.connect(self._push_to_remote)
         self.bulk_import_button.clicked.connect(self._bulk_import)
         self.jira_import_button.clicked.connect(self._jira_import)
 
@@ -78,6 +81,7 @@ class QueuePanel(QWidget):
             self.delete_button,
             self.up_button,
             self.down_button,
+            self.push_button,
             self.bulk_import_button,
             self.jira_import_button,
         ):
@@ -160,6 +164,7 @@ class QueuePanel(QWidget):
         if QMessageBox.question(self, "Delete Task", f"Delete {task_id}?") != QMessageBox.Yes:
             return
         self._store.delete_task(task_id)
+        git_ops.delete_workspace(task_id)
         self.refresh()
         self.tasks_changed.emit()
 
@@ -169,6 +174,23 @@ class QueuePanel(QWidget):
             return
         self._store.move_task(task_id, offset)
         self.refresh()
+
+    def _push_to_remote(self) -> None:
+        task_id = self._selected_task_id()
+        if task_id is None:
+            return
+        task = self._store.get_task(task_id)
+        if task is None or not task.workspace_path or not task.branch:
+            QMessageBox.warning(
+                self, "Push to Remote", "This task has no local branch yet — run it first."
+            )
+            return
+        try:
+            git_ops.push_to_remote(task.id, task.branch)
+        except git_ops.GitOpsError as exc:
+            QMessageBox.warning(self, "Push Failed", str(exc))
+            return
+        QMessageBox.information(self, "Push to Remote", f"Pushed {task.branch} to origin.")
 
     def _bulk_import(self) -> None:
         dialog = BulkImportDialog(self)
@@ -204,6 +226,8 @@ class QueuePanel(QWidget):
         menu.addSeparator()
         menu.addAction("Move Up", lambda: self._move_task(-1))
         menu.addAction("Move Down", lambda: self._move_task(1))
+        menu.addSeparator()
+        menu.addAction("Push to Remote", self._push_to_remote)
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 
     def _show_empty_context_menu(self, pos) -> None:
